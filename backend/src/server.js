@@ -10,6 +10,7 @@ const app = express();
 connectDB();
 
 const authRoutes = require("./routes/authRoutes");
+const companyRoutes = require("./routes/companyRoutes");
 
 // -----------------------------
 // Middleware
@@ -46,6 +47,7 @@ app.get("/api/auth/me", protect, (req, res) => {
     },
   });
 });
+app.use("/api/companies", companyRoutes);
 
 // -----------------------------
 // Health Check

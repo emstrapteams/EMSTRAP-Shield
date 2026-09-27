@@ -61,4 +61,27 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
+// Validate role and company relationship
+userSchema.pre("validate", function () {
+  // Super Admin must not belong to a company
+  if (this.role === "super_admin" && this.company) {
+    this.invalidate(
+      "company",
+      "Super Admin cannot be associated with a company."
+    );
+  }
+
+  // Company Admin and Employee must belong to a company
+  if (
+    (this.role === "company_admin" || this.role === "employee") &&
+    !this.company
+  ) {
+    this.invalidate(
+      "company",
+      `${this.role} must be associated with a company.`
+    );
+  }
+});
+
+module.exports = mongoose.model("User", userSchema);
 module.exports = mongoose.model("User", userSchema);
