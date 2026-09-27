@@ -2,7 +2,14 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
+const connectDB = require("./config/db");
+const { protect } = require("./middleware/auth");
+
 const app = express();
+
+connectDB();
+
+const authRoutes = require("./routes/authRoutes");
 
 // -----------------------------
 // Middleware
@@ -17,6 +24,28 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// -----------------------------
+// Routes
+// -----------------------------
+
+app.use("/api/auth", authRoutes);
+
+app.get("/api/auth/me", protect, (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: {
+      user: {
+        id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+        role: req.user.role,
+        company: req.user.company,
+        status: req.user.status,
+      },
+    },
+  });
+});
 
 // -----------------------------
 // Health Check
