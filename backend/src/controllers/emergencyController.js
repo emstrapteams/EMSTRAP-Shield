@@ -2,6 +2,9 @@
 const mongoose = require("mongoose");
 const Emergency = require("../models/Emergency");
 const Company = require("../models/Company");
+const {
+  uploadEvidenceToCloudinary,
+} = require("../services/evidenceUpload.service");
 
 // Create Emergency Report
 const createEmergency = async (req, res) => {
@@ -182,9 +185,87 @@ const getEmergencyById = async (req, res) => {
     });
   }
 };
+const uploadEmergencyEvidence = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    // Validate emergency ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency ID",
+      });
+    }
+
+    // Find emergency within the employee's company
+    const emergency = await Emergency.findOne({
+      _id: id,
+      company: user.company,
+    });
+
+    if (!emergency) {
+      return res.status(404).json({
+        success: false,
+        message: "Emergency not found",
+      });
+    }
+
+    // Employees can only upload evidence to their own emergencies
+    if (
+      user.role === "employee" &&
+      emergency.reportedBy.toString() !== user._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only upload evidence to your own emergencies",
+      });
+    }
+
+    // Ensure files were provided
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one evidence file is required",
+      });
+    }
+
+    // Prevent exceeding the evidence limit
+    if (emergency.evidence.length + req.files.length > 5) {
+      return res.status(400).json({
+        success: false,
+        message: "An emergency can have a maximum of 5 evidence files",
+      });
+    }
+
+    // Upload files to Cloudinary
+    const uploadedFiles = await Promise.all(
+      req.files.map((file) => uploadEvidenceToCloudinary(file))
+    );
+
+    // Attach uploaded evidence to emergency
+    emergency.evidence.push(...uploadedFiles);
+
+    await emergency.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Emergency evidence uploaded successfully",
+      evidence: emergency.evidence,
+    });
+  } catch (error) {
+    console.error("Evidence upload error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload emergency evidence",
+    });
+  }
+};
 
 module.exports = {
   createEmergency,
   getMyEmergencies,
   getEmergencyById,
+  uploadEmergencyEvidence,
 };
