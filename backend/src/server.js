@@ -11,6 +11,7 @@ connectDB();
 
 const authRoutes = require("./routes/authRoutes");
 const companyRoutes = require("./routes/companyRoutes");
+const companyAdminRoutes = require("./routes/companyAdminRoutes");
 
 // -----------------------------
 // Middleware
@@ -48,7 +49,7 @@ app.get("/api/auth/me", protect, (req, res) => {
   });
 });
 app.use("/api/companies", companyRoutes);
-
+app.use("/api/companies", companyAdminRoutes);
 // -----------------------------
 // Health Check
 // -----------------------------
