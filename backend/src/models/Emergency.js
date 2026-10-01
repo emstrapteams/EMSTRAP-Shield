@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const emergencySchema = new mongoose.Schema(
@@ -108,8 +109,46 @@ const emergencySchema = new mongoose.Schema(
       index: true,
     },
 
+    // Acknowledgement details
+    acknowledgedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    acknowledgedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Response initiation details
+    responseStartedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    responseStartedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Resolution details
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
     resolvedAt: {
       type: Date,
+      default: null,
+    },
+
+    // Closure details
+    closedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       default: null,
     },
 
@@ -118,12 +157,50 @@ const emergencySchema = new mongoose.Schema(
       default: null,
     },
 
+    // Cancellation details
     cancellationReason: {
       type: String,
       trim: true,
       maxlength: 500,
       default: "",
     },
+
+    // Emergency action history
+    responseHistory: [
+      {
+        action: {
+          type: String,
+          enum: [
+            "triggered",
+            "acknowledged",
+            "response_started",
+            "status_updated",
+            "resolved",
+            "closed",
+            "cancelled",
+          ],
+          required: true,
+        },
+
+        performedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+
+        note: {
+          type: String,
+          trim: true,
+          maxlength: 1000,
+          default: "",
+        },
+
+        timestamp: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
   },
   {
     timestamps: true,
@@ -133,5 +210,6 @@ const emergencySchema = new mongoose.Schema(
 // Efficient queries for company dashboards and employee history
 emergencySchema.index({ company: 1, createdAt: -1 });
 emergencySchema.index({ reportedBy: 1, createdAt: -1 });
+emergencySchema.index({ company: 1, status: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Emergency", emergencySchema);

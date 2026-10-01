@@ -1,4 +1,6 @@
+
 const express = require("express");
+
 const router = express.Router();
 
 const uploadEvidence = require("../middleware/uploadEvidence");
@@ -9,9 +11,15 @@ const {
   getEmergencyById,
   uploadEmergencyEvidence,
   cancelEmergency,
+  getCompanyEmergencies,
+  acknowledgeEmergency,
+  startEmergencyResponse,
+  resolveEmergency,
+  closeEmergency,
 } = require("../controllers/emergencyController");
 
 const { protect } = require("../middleware/auth");
+
 const authorize = require("../middleware/authorize");
 
 // All emergency routes require authentication
@@ -31,6 +39,41 @@ router.get(
   getMyEmergencies
 );
 
+// Company Admin views emergencies belonging to their company
+router.get(
+  "/",
+  authorize("company_admin"),
+  getCompanyEmergencies
+);
+
+// Company Admin acknowledges an emergency
+router.patch(
+  "/:id/acknowledge",
+  authorize("company_admin"),
+  acknowledgeEmergency
+);
+
+// Company Admin starts emergency response
+router.patch(
+  "/:id/start-response",
+  authorize("company_admin"),
+  startEmergencyResponse
+);
+
+// Company Admin resolves an emergency
+router.patch(
+  "/:id/resolve",
+  authorize("company_admin"),
+  resolveEmergency
+);
+
+// Company Admin closes a resolved emergency
+router.patch(
+  "/:id/close",
+  authorize("company_admin"),
+  closeEmergency
+);
+
 // Employee uploads evidence to their own emergency
 router.post(
   "/:id/evidence",
@@ -38,12 +81,14 @@ router.post(
   uploadEvidence,
   uploadEmergencyEvidence
 );
+
 // Employee cancels their own emergency
 router.patch(
   "/:id/cancel",
   authorize("employee"),
   cancelEmergency
 );
+
 // Employee or Company Admin views emergency details
 router.get(
   "/:id",

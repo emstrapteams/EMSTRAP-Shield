@@ -2,16 +2,26 @@
 const mongoose = require("mongoose");
 const Emergency = require("../models/Emergency");
 const Company = require("../models/Company");
+
 const {
   uploadEvidenceToCloudinary,
 } = require("../services/evidenceUpload.service");
+
+// Record an action in the emergency response history
+const addResponseHistory = (emergency, action, performedBy, note = "") => {
+  emergency.responseHistory.push({
+    action,
+    performedBy,
+    note,
+    timestamp: new Date(),
+  });
+};
 
 // Create Emergency Report
 const createEmergency = async (req, res) => {
   try {
     const { type, description, location } = req.body;
 
-    // Validate emergency type
     const allowedTypes = [
       "medical",
       "fire",
@@ -185,6 +195,8 @@ const getEmergencyById = async (req, res) => {
     });
   }
 };
+
+// Upload evidence to an emergency
 const uploadEmergencyEvidence = async (req, res) => {
   try {
     const { id } = req.params;
@@ -284,7 +296,8 @@ const cancelEmergency = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Please provide a cancellation reason of at least 5 characters.",
+        message:
+          "Please provide a cancellation reason of at least 5 characters.",
       });
     }
 
@@ -339,10 +352,388 @@ const cancelEmergency = async (req, res) => {
   }
 };
 
+// Get all emergencies belonging to the logged-in Company Admin's company
+const getCompanyEmergencies = async (req, res) => {
+  try {
+    const { status, type, page = 1, limit = 20 } = req.query;
+
+    // Validate pagination
+    const currentPage = Number(page);
+    const pageLimit = Number(limit);
+
+    if (
+      !Number.isInteger(currentPage) ||
+      !Number.isInteger(pageLimit) ||
+      currentPage < 1 ||
+      pageLimit < 1 ||
+      pageLimit > 100
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid pagination parameters.",
+      });
+    }
+
+    // Validate status filter
+    const allowedStatuses = [
+      "triggered",
+      "alert_created",
+      "response_in_progress",
+      "resolved",
+      "closed",
+      "cancelled",
+    ];
+
+    if (status && !allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency status.",
+      });
+    }
+
+    // Validate emergency type filter
+    const allowedTypes = [
+      "medical",
+      "fire",
+      "accident",
+      "electrical",
+      "chemical",
+      "gas",
+      "vehicle",
+      "equipment",
+      "security",
+      "other",
+    ];
+
+    if (type && !allowedTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency type.",
+      });
+    }
+
+    // Company isolation
+    const filter = {
+      company: req.user.company,
+    };
+
+    if (status) {
+      filter.status = status;
+    }
+
+    if (type) {
+      filter.type = type;
+    }
+
+    const skip = (currentPage - 1) * pageLimit;
+
+    const [emergencies, total] = await Promise.all([
+      Emergency.find(filter)
+        .populate("reportedBy", "name email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(pageLimit)
+        .lean(),
+
+      Emergency.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      count: emergencies.length,
+      total,
+      page: currentPage,
+      pages: Math.ceil(total / pageLimit),
+      data: {
+        emergencies,
+      },
+    });
+  } catch (error) {
+    console.error("Get company emergencies error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve company emergencies.",
+    });
+  }
+};
+
+// Acknowledge an emergency
+const acknowledgeEmergency = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency ID.",
+      });
+    }
+
+    const emergency = await Emergency.findOne({
+      _id: id,
+      company: req.user.company,
+    });
+
+    if (!emergency) {
+      return res.status(404).json({
+        success: false,
+        message: "Emergency not found.",
+      });
+    }
+
+    if (emergency.status !== "triggered") {
+      return res.status(400).json({
+        success: false,
+        message: "Only triggered emergencies can be acknowledged.",
+      });
+    }
+
+    emergency.status = "alert_created";
+    emergency.acknowledgedBy = req.user._id;
+    emergency.acknowledgedAt = new Date();
+
+    addResponseHistory(
+      emergency,
+      "acknowledged",
+      req.user._id,
+      "Emergency acknowledged by Company Admin."
+    );
+
+    await emergency.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Emergency acknowledged successfully.",
+      data: { emergency },
+    });
+  } catch (error) {
+    console.error("Acknowledge Emergency error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to acknowledge emergency.",
+    });
+  }
+};
+
+// Start emergency response
+const startEmergencyResponse = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency ID.",
+      });
+    }
+
+    const emergency = await Emergency.findOne({
+      _id: id,
+      company: req.user.company,
+    });
+
+    if (!emergency) {
+      return res.status(404).json({
+        success: false,
+        message: "Emergency not found.",
+      });
+    }
+
+    if (emergency.status !== "alert_created") {
+      return res.status(400).json({
+        success: false,
+        message: "Only acknowledged emergencies can enter response.",
+      });
+    }
+
+    emergency.status = "response_in_progress";
+    emergency.responseStartedBy = req.user._id;
+    emergency.responseStartedAt = new Date();
+
+    addResponseHistory(
+      emergency,
+      "response_started",
+      req.user._id,
+      "Emergency response initiated."
+    );
+
+    await emergency.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Emergency response started successfully.",
+      data: { emergency },
+    });
+  } catch (error) {
+    console.error("Start Emergency Response error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to start emergency response.",
+    });
+  }
+};
+
+// Resolve an emergency
+const resolveEmergency = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { note } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency ID.",
+      });
+    }
+
+    if (note !== undefined && typeof note !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Resolution note must be a string.",
+      });
+    }
+
+    if (typeof note === "string" && note.trim().length > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: "Resolution note cannot exceed 1000 characters.",
+      });
+    }
+
+    const emergency = await Emergency.findOne({
+      _id: id,
+      company: req.user.company,
+    });
+
+    if (!emergency) {
+      return res.status(404).json({
+        success: false,
+        message: "Emergency not found.",
+      });
+    }
+
+    if (emergency.status !== "response_in_progress") {
+      return res.status(400).json({
+        success: false,
+        message: "Only emergencies with an active response can be resolved.",
+      });
+    }
+
+    emergency.status = "resolved";
+    emergency.resolvedBy = req.user._id;
+    emergency.resolvedAt = new Date();
+
+    addResponseHistory(
+      emergency,
+      "resolved",
+      req.user._id,
+      note ? note.trim() : "Emergency marked as resolved."
+    );
+
+    await emergency.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Emergency resolved successfully.",
+      data: { emergency },
+    });
+  } catch (error) {
+    console.error("Resolve Emergency error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to resolve emergency.",
+    });
+  }
+};
+
+// Close a resolved emergency
+const closeEmergency = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { note } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency ID.",
+      });
+    }
+
+    if (note !== undefined && typeof note !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Closure note must be a string.",
+      });
+    }
+
+    if (typeof note === "string" && note.trim().length > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: "Closure note cannot exceed 1000 characters.",
+      });
+    }
+
+    const emergency = await Emergency.findOne({
+      _id: id,
+      company: req.user.company,
+    });
+
+    if (!emergency) {
+      return res.status(404).json({
+        success: false,
+        message: "Emergency not found.",
+      });
+    }
+
+    if (emergency.status !== "resolved") {
+      return res.status(400).json({
+        success: false,
+        message: "Only resolved emergencies can be closed.",
+      });
+    }
+
+    emergency.status = "closed";
+    emergency.closedBy = req.user._id;
+    emergency.closedAt = new Date();
+
+    addResponseHistory(
+      emergency,
+      "closed",
+      req.user._id,
+      note ? note.trim() : "Emergency formally closed."
+    );
+
+    await emergency.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Emergency closed successfully.",
+      data: { emergency },
+    });
+  } catch (error) {
+    console.error("Close Emergency error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to close emergency.",
+    });
+  }
+};
+
+// Export all controller functions
 module.exports = {
   createEmergency,
   getMyEmergencies,
   getEmergencyById,
   uploadEmergencyEvidence,
   cancelEmergency,
+  getCompanyEmergencies,
+  acknowledgeEmergency,
+  startEmergencyResponse,
+  resolveEmergency,
+  closeEmergency,
 };
