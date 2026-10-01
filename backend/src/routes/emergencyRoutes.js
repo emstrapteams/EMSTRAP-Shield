@@ -8,6 +8,7 @@ const {
   getMyEmergencies,
   getEmergencyById,
   uploadEmergencyEvidence,
+  cancelEmergency,
 } = require("../controllers/emergencyController");
 
 const { protect } = require("../middleware/auth");
@@ -37,7 +38,12 @@ router.post(
   uploadEvidence,
   uploadEmergencyEvidence
 );
-
+// Employee cancels their own emergency
+router.patch(
+  "/:id/cancel",
+  authorize("employee"),
+  cancelEmergency
+);
 // Employee or Company Admin views emergency details
 router.get(
   "/:id",

@@ -263,9 +263,86 @@ const uploadEmergencyEvidence = async (req, res) => {
   }
 };
 
+// Cancel an emergency reported by the logged-in employee
+const cancelEmergency = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cancellationReason } = req.body;
+
+    // Validate emergency ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid emergency ID.",
+      });
+    }
+
+    // Validate cancellation reason
+    if (
+      typeof cancellationReason !== "string" ||
+      cancellationReason.trim().length < 5
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a cancellation reason of at least 5 characters.",
+      });
+    }
+
+    if (cancellationReason.trim().length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: "Cancellation reason cannot exceed 500 characters.",
+      });
+    }
+
+    // Find only the employee's own emergency within their company
+    const emergency = await Emergency.findOne({
+      _id: id,
+      company: req.user.company,
+      reportedBy: req.user._id,
+    });
+
+    if (!emergency) {
+      return res.status(404).json({
+        success: false,
+        message: "Emergency not found.",
+      });
+    }
+
+    // Only triggered emergencies can be cancelled
+    if (emergency.status !== "triggered") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This emergency cannot be cancelled because its status is no longer triggered.",
+      });
+    }
+
+    // Update the existing record instead of deleting it
+    emergency.status = "cancelled";
+    emergency.cancellationReason = cancellationReason.trim();
+
+    await emergency.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Emergency cancelled successfully.",
+      data: { emergency },
+    });
+  } catch (error) {
+    console.error("Cancel Emergency error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to cancel emergency.",
+    });
+  }
+};
+
 module.exports = {
   createEmergency,
   getMyEmergencies,
   getEmergencyById,
   uploadEmergencyEvidence,
+  cancelEmergency,
 };

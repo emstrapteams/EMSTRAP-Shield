@@ -1,0 +1,233 @@
+
+.emergency-form-card {
+  width: 100%;
+  max-width: 850px;
+  margin: 0 auto;
+  padding: 32px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #e8e8e8;
+  border-radius: 12px;
+}
+
+.emergency-form-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #eeeeee;
+}
+
+.emergency-form-heading h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.emergency-form-heading p {
+  margin: 0;
+  color: #777777;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.emergency-required {
+  color: #b42323;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.emergency-field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 24px;
+}
+
+.emergency-field label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303030;
+}
+
+.emergency-field label span {
+  color: #c62828;
+}
+
+.emergency-field input[type="file"],
+.emergency-field select,
+.emergency-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1px solid #d8dce2;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #222222;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.emergency-field select:focus,
+.emergency-field textarea:focus,
+.emergency-field input[type="file"]:focus {
+  outline: none;
+  border-color: #244866;
+  box-shadow: 0 0 0 3px rgba(36, 72, 102, 0.1);
+}
+
+.emergency-field textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.emergency-character-count {
+  text-align: right;
+  color: #888888;
+  font-size: 12px;
+}
+
+.emergency-field-hint {
+  margin: -3px 0 2px;
+  color: #777777;
+  font-size: 12px;
+}
+
+.emergency-location-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+  background: #f7f9fb;
+  border: 1px solid #e1e7ed;
+  border-radius: 8px;
+}
+
+.emergency-location-box p {
+  margin: 0;
+  color: #777777;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.location-details {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #555555;
+  font-size: 13px;
+}
+
+.location-status {
+  color: #18794e;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.location-button {
+  padding: 10px 15px;
+  background: #ffffff;
+  color: #244866;
+  border: 1px solid #244866;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.location-button:hover:not(:disabled) {
+  background: #edf3f8;
+}
+
+.location-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.emergency-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.emergency-file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #f7f8fa;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.emergency-file-item button {
+  flex-shrink: 0;
+  padding: 5px 9px;
+  background: transparent;
+  border: 1px solid #e0bcbc;
+  border-radius: 5px;
+  color: #b42323;
+  cursor: pointer;
+}
+
+.emergency-message {
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.emergency-message.error {
+  color: #a32121;
+  background: #fff0f0;
+  border: 1px solid #f3caca;
+}
+
+.emergency-message.success {
+  color: #176b43;
+  background: #eaf7ef;
+  border: 1px solid #bde5cc;
+}
+
+.emergency-submit-button {
+  width: 100%;
+  padding: 14px;
+  background: #c62828;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.emergency-submit-button:hover:not(:disabled) {
+  background: #a91f1f;
+}
+
+.emergency-submit-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .emergency-form-card {
+    padding: 20px;
+  }
+
+  .emergency-form-heading {
+    flex-direction: column;
+  }
+
+  .emergency-required {
+    white-space: normal;
+  }
+}
