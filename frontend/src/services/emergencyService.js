@@ -75,3 +75,11 @@ export const cancelEmergency = async (emergencyId, cancellationReason) => {
 
   return response.data;
 };
+// Get all emergencies belonging to the Company Admin's company
+export const getCompanyEmergencies = async (params = {}) => {
+  const response = await emergencyAPI.get("/emergencies", {
+    params,
+  });
+
+  return response.data;
+};

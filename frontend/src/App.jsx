@@ -3,6 +3,7 @@ import { useState } from "react";
 import Login from "./pages/Login";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
+import CompanyAdminDashboard from "./pages/CompanyAdminDashboard";
 import {
   getStoredUser,
   logoutUser,
@@ -41,7 +42,14 @@ if (user.role === "employee") {
     />
   );
 }
-
+if (user.role === "company_admin") {
+  return (
+    <CompanyAdminDashboard
+      user={user}
+      onLogout={handleLogout}
+    />
+  );
+}
 return (
   <main style={{ padding: "40px", fontFamily: "Arial, sans-serif" }}>
     <h2>Dashboard under development</h2>
