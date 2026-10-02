@@ -9,7 +9,7 @@ const uploadEvidenceToCloudinary = (file) => {
 
     const uploadStream = cloudinary.uploader.upload_stream(
       {
-        folder: "shield/emergency-evidence",
+        folder: "emstrap-shield",
         resource_type: resourceType,
         use_filename: false,
         unique_filename: true,
