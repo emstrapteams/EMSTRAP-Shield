@@ -757,3 +757,81 @@
     align-items: flex-start;
   }
 }
+
+.ca-lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.ca-lifecycle-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ca-history-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.ca-history-section h4 {
+  margin: 0 0 16px;
+  color: #102a43;
+  font-size: 16px;
+}
+
+.ca-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+  border-left: 2px solid #dbeafe;
+}
+
+.ca-history-list li {
+  position: relative;
+  margin: 0 0 20px;
+  padding: 0 0 0 14px;
+}
+
+.ca-history-list li::before {
+  content: "";
+  position: absolute;
+  left: -25px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2563eb;
+}
+
+.ca-history-list li strong {
+  display: block;
+  color: #102a43;
+  margin-bottom: 4px;
+}
+
+.ca-history-list li span,
+.ca-history-list li small {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.ca-history-list li p {
+  margin: 6px 0;
+  color: #334155;
+  overflow-wrap: anywhere;
+}
+
+.ca-alert.error {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+}

@@ -1,5 +1,7 @@
 
 const mongoose = require("mongoose");
+
+const { emitEmergencyEvent } = require("../config/socket");
 const Emergency = require("../models/Emergency");
 const Company = require("../models/Company");
 
@@ -7,8 +9,30 @@ const {
   uploadEvidenceToCloudinary,
 } = require("../services/evidenceUpload.service");
 
-// Record an action in the emergency response history
-const addResponseHistory = (emergency, action, performedBy, note = "") => {
+// Emit a real-time event after a successful database save.
+// Socket delivery failures should not turn a successful database
+// operation into a failed API response.
+const safelyEmitEmergencyEvent = (companyId, event, emergency) => {
+  try {
+    emitEmergencyEvent(
+      companyId,
+      event,
+      typeof emergency.toObject === "function"
+        ? emergency.toObject()
+        : emergency
+    );
+  } catch (error) {
+    console.error(`Socket.IO ${event} emission error:`, error.message);
+  }
+};
+
+// Record an action in the emergency response history.
+const addResponseHistory = (
+  emergency,
+  action,
+  performedBy,
+  note = ""
+) => {
   emergency.responseHistory.push({
     action,
     performedBy,
@@ -17,7 +41,7 @@ const addResponseHistory = (emergency, action, performedBy, note = "") => {
   });
 };
 
-// Create Emergency Report
+// Create Emergency Report.
 const createEmergency = async (req, res) => {
   try {
     const { type, description, location } = req.body;
@@ -42,7 +66,7 @@ const createEmergency = async (req, res) => {
       });
     }
 
-    // Validate location
+    // Validate location.
     if (
       !location ||
       typeof location.latitude !== "number" ||
@@ -66,7 +90,7 @@ const createEmergency = async (req, res) => {
       });
     }
 
-    // Get company and employee from authenticated user
+    // Get company and employee from authenticated user.
     const companyId = req.user.company;
     const employeeId = req.user._id;
 
@@ -77,7 +101,7 @@ const createEmergency = async (req, res) => {
       });
     }
 
-    // Verify company is active
+    // Verify company is active.
     const company = await Company.findById(companyId);
 
     if (!company || company.status !== "active") {
@@ -87,7 +111,7 @@ const createEmergency = async (req, res) => {
       });
     }
 
-    // Create emergency record
+    // Create emergency with initial response history.
     const emergency = await Emergency.create({
       company: companyId,
       reportedBy: employeeId,
@@ -107,7 +131,22 @@ const createEmergency = async (req, res) => {
             : "",
       },
       status: "triggered",
+      responseHistory: [
+        {
+          action: "triggered",
+          performedBy: employeeId,
+          note: "Emergency reported by employee.",
+          timestamp: new Date(),
+        },
+      ],
     });
+
+    // Notify connected users in this company only.
+    safelyEmitEmergencyEvent(
+      companyId,
+      "emergency:created",
+      emergency
+    );
 
     return res.status(201).json({
       success: true,
@@ -124,7 +163,7 @@ const createEmergency = async (req, res) => {
   }
 };
 
-// Get emergencies reported by the logged-in employee
+// Get emergencies reported by the logged-in employee.
 const getMyEmergencies = async (req, res) => {
   try {
     const emergencies = await Emergency.find({
@@ -147,7 +186,7 @@ const getMyEmergencies = async (req, res) => {
   }
 };
 
-// Get a specific emergency
+// Get a specific emergency.
 const getEmergencyById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -171,7 +210,7 @@ const getEmergencyById = async (req, res) => {
       });
     }
 
-    // Employees can only view their own reports
+    // Employees can only view their own reports.
     if (
       req.user.role === "employee" &&
       emergency.reportedBy._id.toString() !== req.user._id.toString()
@@ -196,13 +235,12 @@ const getEmergencyById = async (req, res) => {
   }
 };
 
-// Upload evidence to an emergency
+// Upload evidence to an emergency.
 const uploadEmergencyEvidence = async (req, res) => {
   try {
     const { id } = req.params;
     const user = req.user;
 
-    // Validate emergency ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -210,7 +248,6 @@ const uploadEmergencyEvidence = async (req, res) => {
       });
     }
 
-    // Find emergency within the employee's company
     const emergency = await Emergency.findOne({
       _id: id,
       company: user.company,
@@ -223,7 +260,7 @@ const uploadEmergencyEvidence = async (req, res) => {
       });
     }
 
-    // Employees can only upload evidence to their own emergencies
+    // Employees can only upload evidence to their own emergencies.
     if (
       user.role === "employee" &&
       emergency.reportedBy.toString() !== user._id.toString()
@@ -234,7 +271,6 @@ const uploadEmergencyEvidence = async (req, res) => {
       });
     }
 
-    // Ensure files were provided
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         success: false,
@@ -242,7 +278,6 @@ const uploadEmergencyEvidence = async (req, res) => {
       });
     }
 
-    // Prevent exceeding the evidence limit
     if (emergency.evidence.length + req.files.length > 5) {
       return res.status(400).json({
         success: false,
@@ -250,15 +285,20 @@ const uploadEmergencyEvidence = async (req, res) => {
       });
     }
 
-    // Upload files to Cloudinary
     const uploadedFiles = await Promise.all(
       req.files.map((file) => uploadEvidenceToCloudinary(file))
     );
 
-    // Attach uploaded evidence to emergency
     emergency.evidence.push(...uploadedFiles);
 
     await emergency.save();
+
+    // Notify company dashboards that the evidence has changed.
+    safelyEmitEmergencyEvent(
+      emergency.company,
+      "emergency:updated",
+      emergency
+    );
 
     return res.status(200).json({
       success: true,
@@ -275,13 +315,12 @@ const uploadEmergencyEvidence = async (req, res) => {
   }
 };
 
-// Cancel an emergency reported by the logged-in employee
+// Cancel an emergency reported by the logged-in employee.
 const cancelEmergency = async (req, res) => {
   try {
     const { id } = req.params;
     const { cancellationReason } = req.body;
 
-    // Validate emergency ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -289,7 +328,6 @@ const cancelEmergency = async (req, res) => {
       });
     }
 
-    // Validate cancellation reason
     if (
       typeof cancellationReason !== "string" ||
       cancellationReason.trim().length < 5
@@ -308,7 +346,6 @@ const cancelEmergency = async (req, res) => {
       });
     }
 
-    // Find only the employee's own emergency within their company
     const emergency = await Emergency.findOne({
       _id: id,
       company: req.user.company,
@@ -322,7 +359,6 @@ const cancelEmergency = async (req, res) => {
       });
     }
 
-    // Only triggered emergencies can be cancelled
     if (emergency.status !== "triggered") {
       return res.status(400).json({
         success: false,
@@ -331,11 +367,23 @@ const cancelEmergency = async (req, res) => {
       });
     }
 
-    // Update the existing record instead of deleting it
     emergency.status = "cancelled";
     emergency.cancellationReason = cancellationReason.trim();
 
+    addResponseHistory(
+      emergency,
+      "cancelled",
+      req.user._id,
+      cancellationReason.trim()
+    );
+
     await emergency.save();
+
+    safelyEmitEmergencyEvent(
+      emergency.company,
+      "emergency:updated",
+      emergency
+    );
 
     return res.status(200).json({
       success: true,
@@ -352,12 +400,11 @@ const cancelEmergency = async (req, res) => {
   }
 };
 
-// Get all emergencies belonging to the logged-in Company Admin's company
+// Get all emergencies belonging to the logged-in Company Admin's company.
 const getCompanyEmergencies = async (req, res) => {
   try {
     const { status, type, page = 1, limit = 20 } = req.query;
 
-    // Validate pagination
     const currentPage = Number(page);
     const pageLimit = Number(limit);
 
@@ -374,7 +421,6 @@ const getCompanyEmergencies = async (req, res) => {
       });
     }
 
-    // Validate status filter
     const allowedStatuses = [
       "triggered",
       "alert_created",
@@ -391,7 +437,6 @@ const getCompanyEmergencies = async (req, res) => {
       });
     }
 
-    // Validate emergency type filter
     const allowedTypes = [
       "medical",
       "fire",
@@ -412,7 +457,7 @@ const getCompanyEmergencies = async (req, res) => {
       });
     }
 
-    // Company isolation
+    // Company isolation.
     const filter = {
       company: req.user.company,
     };
@@ -444,9 +489,7 @@ const getCompanyEmergencies = async (req, res) => {
       total,
       page: currentPage,
       pages: Math.ceil(total / pageLimit),
-      data: {
-        emergencies,
-      },
+      data: { emergencies },
     });
   } catch (error) {
     console.error("Get company emergencies error:", error);
@@ -458,7 +501,7 @@ const getCompanyEmergencies = async (req, res) => {
   }
 };
 
-// Acknowledge an emergency
+// Acknowledge an emergency.
 const acknowledgeEmergency = async (req, res) => {
   try {
     const { id } = req.params;
@@ -502,6 +545,12 @@ const acknowledgeEmergency = async (req, res) => {
 
     await emergency.save();
 
+    safelyEmitEmergencyEvent(
+      emergency.company,
+      "emergency:updated",
+      emergency
+    );
+
     return res.status(200).json({
       success: true,
       message: "Emergency acknowledged successfully.",
@@ -517,7 +566,7 @@ const acknowledgeEmergency = async (req, res) => {
   }
 };
 
-// Start emergency response
+// Start emergency response.
 const startEmergencyResponse = async (req, res) => {
   try {
     const { id } = req.params;
@@ -561,6 +610,12 @@ const startEmergencyResponse = async (req, res) => {
 
     await emergency.save();
 
+    safelyEmitEmergencyEvent(
+      emergency.company,
+      "emergency:updated",
+      emergency
+    );
+
     return res.status(200).json({
       success: true,
       message: "Emergency response started successfully.",
@@ -576,7 +631,7 @@ const startEmergencyResponse = async (req, res) => {
   }
 };
 
-// Resolve an emergency
+// Resolve an emergency.
 const resolveEmergency = async (req, res) => {
   try {
     const { id } = req.params;
@@ -618,7 +673,8 @@ const resolveEmergency = async (req, res) => {
     if (emergency.status !== "response_in_progress") {
       return res.status(400).json({
         success: false,
-        message: "Only emergencies with an active response can be resolved.",
+        message:
+          "Only emergencies with an active response can be resolved.",
       });
     }
 
@@ -635,6 +691,12 @@ const resolveEmergency = async (req, res) => {
 
     await emergency.save();
 
+    safelyEmitEmergencyEvent(
+      emergency.company,
+      "emergency:updated",
+      emergency
+    );
+
     return res.status(200).json({
       success: true,
       message: "Emergency resolved successfully.",
@@ -650,7 +712,7 @@ const resolveEmergency = async (req, res) => {
   }
 };
 
-// Close a resolved emergency
+// Close a resolved emergency.
 const closeEmergency = async (req, res) => {
   try {
     const { id } = req.params;
@@ -709,6 +771,12 @@ const closeEmergency = async (req, res) => {
 
     await emergency.save();
 
+    safelyEmitEmergencyEvent(
+      emergency.company,
+      "emergency:updated",
+      emergency
+    );
+
     return res.status(200).json({
       success: true,
       message: "Emergency closed successfully.",
@@ -724,7 +792,6 @@ const closeEmergency = async (req, res) => {
   }
 };
 
-// Export all controller functions
 module.exports = {
   createEmergency,
   getMyEmergencies,

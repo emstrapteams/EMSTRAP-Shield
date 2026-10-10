@@ -1,8 +1,14 @@
-
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import logo from "../assets/logo.png";
-import { logoutUser } from "../services/authService";
-import { getCompanyEmergencies } from "../services/emergencyService";
+import { logoutUser, getStoredToken } from "../services/authService";
+import {
+  getCompanyEmergencies,
+  acknowledgeEmergency,
+  startEmergencyResponse,
+  resolveEmergency,
+  closeEmergency,
+} from "../services/emergencyService";
+import { connectSocket, disconnectSocket } from "../services/socketService";
 import "./CompanyAdminDashboard.css";
 
 const statusOptions = [
@@ -28,7 +34,9 @@ const typeOptions = [
 ];
 
 const formatStatus = (status = "") =>
-  status.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  status.replaceAll("_", " ").replace(/\b\w/g, (char) =>
+    char.toUpperCase()
+  );
 
 const formatDate = (date) => {
   if (!date) return "—";
@@ -41,16 +49,20 @@ const formatDate = (date) => {
 };
 
 function CompanyAdminDashboard({ user, onLogout }) {
+  const detailsSectionRef = useRef(null);
+
   const [emergencies, setEmergencies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [activeSection, setActiveSection] = useState("overview");
 
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedEmergency, setSelectedEmergency] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const fetchEmergencies = async (showRefresh = false) => {
     if (showRefresh) {
@@ -65,21 +77,24 @@ function CompanyAdminDashboard({ user, onLogout }) {
       const response = await getCompanyEmergencies();
 
       const emergencyList =
-        response.data?.emergencies ||
-        response.emergencies ||
+        response?.data?.emergencies ||
+        response?.emergencies ||
         [];
 
       setEmergencies(emergencyList);
 
-      if (selectedEmergency) {
-        const updatedSelected = emergencyList.find(
-          (item) =>
-            item._id === selectedEmergency._id ||
-            item.id === selectedEmergency.id
-        );
+      // Keep the selected emergency synchronized with the server.
+      setSelectedEmergency((current) => {
+        if (!current) return null;
 
-        setSelectedEmergency(updatedSelected || null);
-      }
+        const currentId = current._id || current.id;
+
+        return (
+          emergencyList.find(
+            (item) => (item._id || item.id) === currentId
+          ) || current
+        );
+      });
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -96,33 +111,77 @@ function CompanyAdminDashboard({ user, onLogout }) {
     // Initial data fetch only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Keep the Company Admin dashboard synchronized in real time.
+useEffect(() => {
+  const token = getStoredToken();
 
-  const filteredEmergencies = useMemo(() => {
-    return emergencies.filter((emergency) => {
-      const matchesStatus =
-        !statusFilter || emergency.status === statusFilter;
+  if (!token) {
+    console.warn("No authentication token found for Socket.IO.");
+    return undefined;
+  }
 
-      const matchesType =
-        !typeFilter || emergency.type === typeFilter;
+  const socket = connectSocket(token);
 
-      const employeeName =
-        emergency.reportedBy?.name ||
-        emergency.reportedBy?.email ||
-        "";
+  if (!socket) {
+    return undefined;
+  }
 
-      const description = emergency.description || "";
+  const handleEmergencyChange = () => {
+    fetchEmergencies(true);
+  };
 
-      const matchesSearch =
-        !searchTerm ||
-        employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (emergency.type || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
+  socket.on("emergency:created", handleEmergencyChange);
+  socket.on("emergency:updated", handleEmergencyChange);
 
-      return matchesStatus && matchesType && matchesSearch;
-    });
-  }, [emergencies, statusFilter, typeFilter, searchTerm]);
+  return () => {
+    socket.off("emergency:created", handleEmergencyChange);
+    socket.off("emergency:updated", handleEmergencyChange);
+    disconnectSocket();
+  };
+
+  // Set up listeners once when the dashboard mounts.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+  // Automatically scroll to the details panel when an emergency is selected.
+  useEffect(() => {
+    if (selectedEmergency && activeSection === "emergencies") {
+      requestAnimationFrame(() => {
+        detailsSectionRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    }
+  }, [selectedEmergency, activeSection]);
+
+  const filteredEmergencies = useMemo(
+    () =>
+      emergencies.filter((emergency) => {
+        const matchesStatus =
+          !statusFilter || emergency.status === statusFilter;
+
+        const matchesType =
+          !typeFilter || emergency.type === typeFilter;
+
+        const employeeName =
+          emergency.reportedBy?.name ||
+          emergency.reportedBy?.email ||
+          "";
+
+        const description = emergency.description || "";
+        const term = searchTerm.toLowerCase();
+
+        const matchesSearch =
+          !term ||
+          employeeName.toLowerCase().includes(term) ||
+          description.toLowerCase().includes(term) ||
+          (emergency.type || "").toLowerCase().includes(term);
+
+        return matchesStatus && matchesType && matchesSearch;
+      }),
+    [emergencies, statusFilter, typeFilter, searchTerm]
+  );
 
   const counts = useMemo(() => {
     const countStatus = (status) =>
@@ -147,12 +206,107 @@ function CompanyAdminDashboard({ user, onLogout }) {
     emergencies: "Emergency Monitoring",
   };
 
+  const performLifecycleAction = async (action) => {
+    if (!selectedEmergency || actionLoading) return;
+
+    const emergencyId =
+      selectedEmergency._id || selectedEmergency.id;
+
+    setActionLoading(true);
+    setActionError("");
+
+    try {
+      let response;
+
+      if (action === "acknowledge") {
+        response = await acknowledgeEmergency(emergencyId);
+      } else if (action === "start") {
+        response = await startEmergencyResponse(emergencyId);
+      } else if (action === "resolve") {
+        const note = window.prompt(
+          "Enter a resolution note (optional):",
+          ""
+        );
+
+        if (note === null) return;
+
+        response = await resolveEmergency(emergencyId, note);
+      } else if (action === "close") {
+        const note = window.prompt(
+          "Enter a closure note (optional):",
+          ""
+        );
+
+        if (note === null) return;
+
+        response = await closeEmergency(emergencyId, note);
+      } else {
+        return;
+      }
+
+      const updatedEmergency = response?.data?.emergency;
+
+      if (!updatedEmergency) {
+        throw new Error(
+          "The server did not return the updated emergency."
+        );
+      }
+
+      // Update the details panel immediately.
+      setSelectedEmergency(updatedEmergency);
+
+      // Update the corresponding table row and dashboard counts.
+      setEmergencies((current) =>
+        current.map((item) =>
+          (item._id || item.id) === emergencyId
+            ? { ...item, ...updatedEmergency }
+            : item
+        )
+      );
+
+      // Refresh from the server to keep the dashboard synchronized.
+      await fetchEmergencies(true);
+    } catch (err) {
+      setActionError(
+        err.response?.data?.message ||
+          err.message ||
+          "The emergency action failed. Please try again."
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const lifecycleActions = {
+    triggered: {
+      label: "Acknowledge Emergency",
+      action: "acknowledge",
+    },
+    alert_created: {
+      label: "Start Response",
+      action: "start",
+    },
+    response_in_progress: {
+      label: "Resolve Emergency",
+      action: "resolve",
+    },
+    resolved: {
+      label: "Close Emergency",
+      action: "close",
+    },
+  };
+
+  const openEmergencyDetails = (emergency) => {
+    setSelectedEmergency(emergency);
+    setActiveSection("emergencies");
+    setActionError("");
+  };
+
   return (
     <div className="ca-layout">
       <aside className="ca-sidebar">
         <div className="ca-sidebar-brand">
           <img src={logo} alt="EMSTRAP Logo" />
-
           <div>
             <strong>EMSTRAP</strong>
             <span>Shield</span>
@@ -169,10 +323,10 @@ function CompanyAdminDashboard({ user, onLogout }) {
             onClick={() => {
               setActiveSection("overview");
               setSelectedEmergency(null);
+              setActionError("");
             }}
           >
-            <span>▦</span>
-            Overview
+            <span>▦</span> Overview
           </button>
 
           <button
@@ -182,26 +336,29 @@ function CompanyAdminDashboard({ user, onLogout }) {
             onClick={() => {
               setActiveSection("emergencies");
               setSelectedEmergency(null);
+              setActionError("");
             }}
           >
-            <span>⚠</span>
-            Emergencies
+            <span>⚠</span> Emergencies
           </button>
         </nav>
 
         <div className="ca-sidebar-bottom">
           <div className="ca-sidebar-user">
             <div className="ca-avatar">
-              {user.name?.charAt(0).toUpperCase() || "A"}
+              {user?.name?.charAt(0).toUpperCase() || "A"}
             </div>
 
             <div className="ca-user-info">
-              <strong>{user.name}</strong>
+              <strong>{user?.name}</strong>
               <span>Company Admin</span>
             </div>
           </div>
 
-          <button className="ca-logout-button" onClick={handleLogout}>
+          <button
+            className="ca-logout-button"
+            onClick={handleLogout}
+          >
             Log out
           </button>
         </div>
@@ -216,11 +373,11 @@ function CompanyAdminDashboard({ user, onLogout }) {
 
           <div className="ca-header-profile">
             <div className="ca-header-avatar">
-              {user.name?.charAt(0).toUpperCase() || "A"}
+              {user?.name?.charAt(0).toUpperCase() || "A"}
             </div>
 
             <div>
-              <strong>{user.name}</strong>
+              <strong>{user?.name}</strong>
               <span>Company Admin</span>
             </div>
           </div>
@@ -238,7 +395,7 @@ function CompanyAdminDashboard({ user, onLogout }) {
               <div className="ca-welcome-row">
                 <div>
                   <h2>
-                    Welcome back, {user.name?.split(" ")[0]}.
+                    Welcome back, {user?.name?.split(" ")[0]}.
                   </h2>
                   <p>
                     Monitor emergencies and coordinate workplace
@@ -255,40 +412,56 @@ function CompanyAdminDashboard({ user, onLogout }) {
               </div>
 
               <div className="ca-stats-grid">
-                <div className="ca-stat-card">
-                  <div className="ca-stat-icon total">▤</div>
-                  <span>Total Emergencies</span>
-                  <strong>{counts.total}</strong>
-                  <small>Recorded emergencies</small>
-                </div>
+                {[
+                  [
+                    "total",
+                    "Total Emergencies",
+                    counts.total,
+                    "Recorded emergencies",
+                  ],
+                  [
+                    "triggered",
+                    "Triggered",
+                    counts.triggered,
+                    "Awaiting response",
+                  ],
+                  [
+                    "progress",
+                    "In Progress",
+                    counts.inProgress,
+                    "Response underway",
+                  ],
+                  [
+                    "resolved",
+                    "Resolved",
+                    counts.resolved,
+                    "Successfully resolved",
+                  ],
+                  [
+                    "cancelled",
+                    "Cancelled",
+                    counts.cancelled,
+                    "Cancelled reports",
+                  ],
+                ].map(([icon, label, count, caption]) => (
+                  <div className="ca-stat-card" key={label}>
+                    <div className={`ca-stat-icon ${icon}`}>
+                      {icon === "total"
+                        ? "▤"
+                        : icon === "progress"
+                          ? "↻"
+                          : icon === "resolved"
+                            ? "✓"
+                            : icon === "cancelled"
+                              ? "×"
+                              : "!"}
+                    </div>
 
-                <div className="ca-stat-card">
-                  <div className="ca-stat-icon triggered">!</div>
-                  <span>Triggered</span>
-                  <strong>{counts.triggered}</strong>
-                  <small>Awaiting response</small>
-                </div>
-
-                <div className="ca-stat-card">
-                  <div className="ca-stat-icon progress">↻</div>
-                  <span>In Progress</span>
-                  <strong>{counts.inProgress}</strong>
-                  <small>Response underway</small>
-                </div>
-
-                <div className="ca-stat-card">
-                  <div className="ca-stat-icon resolved">✓</div>
-                  <span>Resolved</span>
-                  <strong>{counts.resolved}</strong>
-                  <small>Successfully resolved</small>
-                </div>
-
-                <div className="ca-stat-card">
-                  <div className="ca-stat-icon cancelled">×</div>
-                  <span>Cancelled</span>
-                  <strong>{counts.cancelled}</strong>
-                  <small>Cancelled reports</small>
-                </div>
+                    <span>{label}</span>
+                    <strong>{count}</strong>
+                    <small>{caption}</small>
+                  </div>
+                ))}
               </div>
 
               <section className="ca-panel">
@@ -315,7 +488,6 @@ function CompanyAdminDashboard({ user, onLogout }) {
                   </div>
                 ) : emergencies.length === 0 ? (
                   <div className="ca-empty-state">
-                    <div className="ca-empty-icon">✓</div>
                     <h4>No emergencies recorded</h4>
                     <p>
                       Emergency reports from employees will appear here.
@@ -336,7 +508,9 @@ function CompanyAdminDashboard({ user, onLogout }) {
 
                       <tbody>
                         {emergencies.slice(0, 5).map((emergency) => (
-                          <tr key={emergency._id || emergency.id}>
+                          <tr
+                            key={emergency._id || emergency.id}
+                          >
                             <td>
                               <strong>
                                 {emergency.reportedBy?.name ||
@@ -360,10 +534,9 @@ function CompanyAdminDashboard({ user, onLogout }) {
                             <td>
                               <button
                                 className="ca-view-button"
-                                onClick={() => {
-                                  setSelectedEmergency(emergency);
-                                  setActiveSection("emergencies");
-                                }}
+                                onClick={() =>
+                                  openEmergencyDetails(emergency)
+                                }
                               >
                                 View
                               </button>
@@ -454,7 +627,6 @@ function CompanyAdminDashboard({ user, onLogout }) {
                   </div>
                 ) : filteredEmergencies.length === 0 ? (
                   <div className="ca-empty-state">
-                    <div className="ca-empty-icon">⌕</div>
                     <h4>No matching emergencies</h4>
                     <p>
                       Try changing your filters or search term.
@@ -477,7 +649,9 @@ function CompanyAdminDashboard({ user, onLogout }) {
 
                       <tbody>
                         {filteredEmergencies.map((emergency) => (
-                          <tr key={emergency._id || emergency.id}>
+                          <tr
+                            key={emergency._id || emergency.id}
+                          >
                             <td>
                               <strong>
                                 {emergency.reportedBy?.name ||
@@ -514,7 +688,7 @@ function CompanyAdminDashboard({ user, onLogout }) {
                               <button
                                 className="ca-view-button"
                                 onClick={() =>
-                                  setSelectedEmergency(emergency)
+                                  openEmergencyDetails(emergency)
                                 }
                               >
                                 Details
@@ -529,7 +703,10 @@ function CompanyAdminDashboard({ user, onLogout }) {
               </section>
 
               {selectedEmergency && (
-                <section className="ca-panel ca-details-panel">
+                <section
+                  ref={detailsSectionRef}
+                  className="ca-panel ca-details-panel"
+                >
                   <div className="ca-panel-heading">
                     <div>
                       <h3>Emergency Details</h3>
@@ -543,11 +720,20 @@ function CompanyAdminDashboard({ user, onLogout }) {
 
                     <button
                       className="ca-secondary-button"
-                      onClick={() => setSelectedEmergency(null)}
+                      onClick={() => {
+                        setSelectedEmergency(null);
+                        setActionError("");
+                      }}
                     >
                       Close Details
                     </button>
                   </div>
+
+                  {actionError && (
+                    <div className="ca-alert error" role="alert">
+                      {actionError}
+                    </div>
+                  )}
 
                   <div className="ca-details-grid">
                     <div className="ca-detail-item">
@@ -624,8 +810,73 @@ function CompanyAdminDashboard({ user, onLogout }) {
                     {selectedEmergency.cancellationReason && (
                       <div className="ca-detail-item full-width">
                         <span>Cancellation Reason</span>
-                        <p>{selectedEmergency.cancellationReason}</p>
+                        <p>
+                          {selectedEmergency.cancellationReason}
+                        </p>
                       </div>
+                    )}
+                  </div>
+
+                  {lifecycleActions[selectedEmergency.status] && (
+                    <div className="ca-lifecycle-actions">
+                      <button
+                        className="ca-primary-button"
+                        disabled={actionLoading}
+                        onClick={() =>
+                          performLifecycleAction(
+                            lifecycleActions[selectedEmergency.status]
+                              .action
+                          )
+                        }
+                      >
+                        {actionLoading
+                          ? "Processing..."
+                          : lifecycleActions[selectedEmergency.status].label}
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="ca-history-section">
+                    <h4>Response History</h4>
+
+                    {!selectedEmergency.responseHistory?.length ? (
+                      <p className="ca-no-evidence">
+                        No response history recorded.
+                      </p>
+                    ) : (
+                      <ol className="ca-history-list">
+                        {selectedEmergency.responseHistory.map(
+                          (event, index) => (
+                            <li
+                              key={
+                                event._id ||
+                                `${event.action}-${index}`
+                              }
+                            >
+                              <strong>
+                                {formatStatus(event.action)}
+                              </strong>
+
+                              <span>
+                                {formatDate(event.timestamp)}
+                              </span>
+
+                              <p>
+                                {event.note || "No note provided."}
+                              </p>
+
+                              {event.performedBy && (
+                                <small>
+                                  User ID:{" "}
+                                  {typeof event.performedBy === "object"
+                                    ? event.performedBy._id
+                                    : event.performedBy}
+                                </small>
+                              )}
+                            </li>
+                          )
+                        )}
+                      </ol>
                     )}
                   </div>
 
@@ -645,7 +896,9 @@ function CompanyAdminDashboard({ user, onLogout }) {
                           (item, index) => (
                             <div
                               className="ca-evidence-item"
-                              key={item.publicId || item.url || index}
+                              key={
+                                item.publicId || item.url || index
+                              }
                             >
                               {item.mediaType === "video" ? (
                                 <video

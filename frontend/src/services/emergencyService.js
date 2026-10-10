@@ -55,7 +55,6 @@ export const uploadEmergencyEvidence = async (
 // Fetch emergencies reported by the logged-in employee.
 export const getMyEmergencies = async () => {
   const response = await emergencyAPI.get("/emergencies/my");
-
   return response.data;
 };
 
@@ -67,7 +66,12 @@ export const getEmergencyById = async (emergencyId) => {
 
   return response.data;
 };
-export const cancelEmergency = async (emergencyId, cancellationReason) => {
+
+// Cancel an emergency reported by the employee.
+export const cancelEmergency = async (
+  emergencyId,
+  cancellationReason
+) => {
   const response = await emergencyAPI.patch(
     `/emergencies/${emergencyId}/cancel`,
     { cancellationReason }
@@ -75,11 +79,50 @@ export const cancelEmergency = async (emergencyId, cancellationReason) => {
 
   return response.data;
 };
-// Get all emergencies belonging to the Company Admin's company
+
+// Fetch emergencies belonging to the Company Admin's company.
 export const getCompanyEmergencies = async (params = {}) => {
   const response = await emergencyAPI.get("/emergencies", {
     params,
   });
+
+  return response.data;
+};
+
+// Company Admin: acknowledge a triggered emergency.
+export const acknowledgeEmergency = async (emergencyId) => {
+  const response = await emergencyAPI.patch(
+    `/emergencies/${emergencyId}/acknowledge`
+  );
+
+  return response.data;
+};
+
+// Company Admin: start responding to an acknowledged emergency.
+export const startEmergencyResponse = async (emergencyId) => {
+  const response = await emergencyAPI.patch(
+    `/emergencies/${emergencyId}/start-response`
+  );
+
+  return response.data;
+};
+
+// Company Admin: resolve an emergency with an optional note.
+export const resolveEmergency = async (emergencyId, note = "") => {
+  const response = await emergencyAPI.patch(
+    `/emergencies/${emergencyId}/resolve`,
+    { note }
+  );
+
+  return response.data;
+};
+
+// Company Admin: close a resolved emergency with an optional note.
+export const closeEmergency = async (emergencyId, note = "") => {
+  const response = await emergencyAPI.patch(
+    `/emergencies/${emergencyId}/close`,
+    { note }
+  );
 
   return response.data;
 };

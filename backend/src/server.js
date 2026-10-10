@@ -4,9 +4,12 @@ require("dotenv").config();
 
 const connectDB = require("./config/db");
 const { protect } = require("./middleware/auth");
+const http = require("http");
+const { initializeSocket } = require("./config/socket");
 
 const app = express();
-
+const httpServer = http.createServer(app);
+initializeSocket(httpServer);
 connectDB();
 
 const authRoutes = require("./routes/authRoutes");
@@ -82,6 +85,6 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`EMSTRAP Shield server running on port ${PORT}`);
 });
