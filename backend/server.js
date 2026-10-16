@@ -1,10 +1,14 @@
+require("node:dns").setServers(["8.8.8.8", "8.8.4.4"]);
 require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
+
 const connectDB = require("./config/db");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 
+// Import routes
 const employeeRoutes = require("./routes/employeeRoutes");
 const departmentRoutes = require("./routes/departmentRoutes");
 const facilityRoutes = require("./routes/facilityRoutes");
@@ -24,15 +28,23 @@ const companyRoutes = require("./routes/companyRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 
-connectDB();
-
+// Initialize Express
 const app = express();
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));
 
-app.get("/api/health", (req, res) => res.json({ success: true, message: "Shield API is running." }));
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Shield API is running.",
+  });
+});
+
+// API routes
 app.use("/api/employees", employeeRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/facilities", facilityRoutes);
@@ -52,8 +64,25 @@ app.use("/api/companies", companyRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/reports", reportRoutes);
 
+// Error handling
 app.use(notFound);
 app.use(errorHandler);
 
+// Server configuration
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`[Shield API] Listening on port ${PORT}`));
+
+// Connect to MongoDB before starting the API server
+const startServer = async () => {
+  try {
+    await connectDB();
+
+    app.listen(PORT, () => {
+      console.log(`[Shield API] Listening on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("[Shield API] Startup failed:", error.message);
+    process.exit(1);
+  }
+};
+
+startServer();

@@ -1,7 +1,7 @@
 const { fail } = require("../utils/apiResponse");
 
-const EMAIL_RE = /^\S+@\S+\.\S+$/;
-const PHONE_RE = /^[0-9+\-\s()]{7,20}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[0-9+\-()\s]{7,20}$/;
 
 const validateEmployee = (req, res, next) => {
   const { employeeId, name, email, phone, joiningDate, status } = req.body;
